@@ -1,0 +1,77 @@
+#pragma kernel CS_Mask
+#pragma kernel CS_NoMask
+
+#include "./MyFunctions.hlsl"
+
+Texture2D<float4> _TargetLocalPosTexture;
+
+StructuredBuffer<float3> _EyelidTriangleVertices;
+
+RWTexture2D<float4> _MaskTexture;
+
+float4x4 _TargetLocalToWorldMat;
+float4x4 _EyelidLocalToWorldMat;
+float3 _ViewPos;
+
+int _UVTexSize;
+int _ColliderTexSize;
+int _NumEyelidTriangleVertices;
+
+[numthreads(8, 8, 1)]
+void CS_Mask (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_UVTexSize || id.y >= (uint)_UVTexSize) return;
+
+    // UVが存在しない場合はここで終了
+    if (_TargetLocalPosTexture[id.xy].a <= 0) 
+    {
+        _MaskTexture[id.xy] = float4(0, 0, 0, 0);
+        return;
+    }
+
+    float3 localPos = _TargetLocalPosTexture[id.xy].xyz;
+
+    float3 worldPos = mul(_TargetLocalToWorldMat, float4(localPos, 1)).xyz;
+
+    // 目のメッシュ上の点から視点へのレイと、まぶたのメッシュの三角形で交差判定
+    float3 rayFrom = _ViewPos;
+    float3 rayTo = worldPos;
+
+    for (int i = 0; i < _NumEyelidTriangleVertices; i += 3)
+    {
+        float3 t0Local = _EyelidTriangleVertices[i + 0];
+        float3 t1Local = _EyelidTriangleVertices[i + 1];
+        float3 t2Local = _EyelidTriangleVertices[i + 2];
+
+        float3 t0World = mul(_EyelidLocalToWorldMat, float4(t0Local, 1)).xyz;
+        float3 t1World = mul(_EyelidLocalToWorldMat, float4(t1Local, 1)).xyz;
+        float3 t2World = mul(_EyelidLocalToWorldMat, float4(t2Local, 1)).xyz;
+
+        bool intersect = IsRayTriangleIntersect(rayFrom, rayTo, t0World, t1World, t2World);
+
+        if (intersect)
+        {
+            _MaskTexture[id.xy] = float4(1, 1, 1, 1);
+            return;
+        }
+    }
+
+    // どの面とも交差しなかった場合
+    _MaskTexture[id.xy] = float4(0, 0, 0, 0);
+}
+
+// マスクなしの場合
+[numthreads(8, 8, 1)]
+void CS_NoMask (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_UVTexSize || id.y >= (uint)_UVTexSize) return;
+
+    // UVが存在しない場合はここで終了
+    if (_TargetLocalPosTexture[id.xy].a <= 0) 
+    {
+        _MaskTexture[id.xy] = float4(0, 0, 0, 0);
+        return;
+    }
+
+    _MaskTexture[id.xy] = float4(1, 1, 1, 1);
+}

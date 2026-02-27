@@ -1,0 +1,140 @@
+#pragma kernel CS_CalcDelta
+#pragma kernel CS_ApplyDelta
+
+#include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
+
+struct Cluster
+{
+    int start;
+    int count;
+};
+
+struct Helper
+{
+    int start;
+    int count;
+};
+
+RWStructuredBuffer<ParticleData> _Particles;
+StructuredBuffer<Cluster> _Clusters;
+StructuredBuffer<int> _Indices;
+StructuredBuffer<float2> _RestPositions;
+RWStructuredBuffer<float2> _Corrections;
+StructuredBuffer<int> _References;
+StructuredBuffer<Helper> _Helpers;
+
+uint _NumParticles;
+uint _NumConstraints;
+float _K;
+
+[numthreads(64, 1, 1)]
+void CS_CalcDelta (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumConstraints) return;
+
+    int start = _Clusters[id].start;
+    int count = _Clusters[id].count;
+
+    // 重心を計算
+    float2 currCenter = float2(0, 0);
+
+    for (int i = 0; i < count; i++)
+    {
+        int cID = start + i;
+        int pID = _Indices[cID];
+
+        // 条件分岐でreturnが起こると値が更新されないため、ここで初期化する
+        _Corrections[cID] = float2(0, 0);
+
+        float2 p = _Particles[pID].p;
+
+        currCenter += p;
+    }
+
+    if (count <= 0) return;
+
+    currCenter /= count;
+
+    // 回転行列を計算
+    float2x2 mtx = float2x2(0,0, 0,0);
+
+    float2 col0 = float2(0.0, 0.0); // mtx.c0（X軸）
+    float2 col1 = float2(0.0, 0.0); // mtx.c1（Y軸）
+
+    for (int j = 0; j < count; j++)
+    {
+        int cID = start + j;
+        int pID = _Indices[cID];
+
+        float2 p = _Particles[pID].p - currCenter;
+        float2 q = _RestPositions[cID];
+
+        float2 v = float2(
+            p.x * q.x + p.y * q.y,  // 内積 = cos
+            p.y * q.x - p.x * q.y   // 外積 = sin
+        );
+        
+        // mtx.c0 += float2( v.x, v.y);    // X軸
+        // mtx.c1 += float2(-v.y, v.x);    // Y軸
+
+        col0 += float2(v.x, v.y);      // X軸
+        col1 += float2(-v.y, v.x);     // Y軸
+    }
+
+    mtx = float2x2(col0, col1);
+
+    {
+        // 軸ベクトルを正規化する
+        float2 v = col0;
+        float u = sqrt(v.x * v.x + v.y * v.y);
+
+        // mtx = (u > 0.0f) ? mtx * (1.0f / u) : float2x2(1,0, 0,1);
+
+        if (u > 0)
+        {
+            float invU = 1.0f / u;
+            mtx = float2x2(col0 * invU, col1 * invU);
+        }
+        else
+        {
+            mtx = float2x2(1, 0, 0, 1); // 単位行列
+        }
+    }
+
+    // パーティクルの位置を修正
+    for (int k = 0; k < count; k++)
+    {
+        int cID = start + k;
+        int pID = _Indices[cID];
+
+        float2 p = _Particles[pID].p;
+        float2 q = _RestPositions[cID];
+        float2 target = mul(mtx, q) + currCenter;
+
+        _Corrections[cID] = (target - p) * _K; 
+    }
+}
+
+[numthreads(64, 1, 1)]
+void CS_ApplyDelta (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+    int start = _Helpers[id].start;
+    int count = _Helpers[id].count;
+
+    if (count <= 0) return;
+
+    float2 corrSum = float2(0, 0);
+
+    // [unroll]
+    for (int i = start; i < start + count; i++)
+    {
+        int cID = _References[i];
+        corrSum += _Corrections[cID]; // ランダムアクセス
+    }
+
+    float2 corr = corrSum / count;
+
+    _Particles[id].p += corr;
+}

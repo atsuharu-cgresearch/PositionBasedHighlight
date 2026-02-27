@@ -1,0 +1,109 @@
+#pragma kernel CS_CalcDelta
+#pragma kernel CS_ApplyDelta
+
+#include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
+
+struct Cluster
+{
+    float restArea;
+    int start;
+};
+
+struct Helper
+{
+    int start;
+    int count;
+};
+
+RWStructuredBuffer<ParticleData> _Particles;
+StructuredBuffer<Cluster> _Clusters;
+StructuredBuffer<int> _Indices;
+RWStructuredBuffer<float2> _Corrections;
+StructuredBuffer<int> _References;
+StructuredBuffer<Helper> _Helpers;
+
+uint _NumParticles;
+uint _NumConstraints;
+float _K;
+
+float Cross2D(float2 v0, float2 v1)
+{
+    return v0.x * v1.y - v0.y * v1.x;
+}
+
+[numthreads(64, 1, 1)]
+void CS_CalcDelta (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumConstraints) return;
+
+    float restArea = _Clusters[id].restArea;
+    int cID0 = _Clusters[id].start + 0;
+    int cID1 = _Clusters[id].start + 1;
+    int cID2 = _Clusters[id].start + 2;
+    int pID0 = _Indices[cID0];
+    int pID1 = _Indices[cID1];
+    int pID2 = _Indices[cID2];
+
+    // 条件分岐でreturnが起こると値が更新されないため、ここで初期化する
+    _Corrections[cID0] = float2(0, 0);
+    _Corrections[cID1] = float2(0, 0);
+    _Corrections[cID2] = float2(0, 0);
+
+    float2 p0 = _Particles[pID0].p;
+    float2 p1 = _Particles[pID1].p;
+    float2 p2 = _Particles[pID2].p;
+
+    // 現在の面積
+    float signedArea = 0.5 * Cross2D(p1 - p0, p2 - p0);
+
+    if (signedArea < 0) return;
+
+    float currentArea = abs(signedArea);
+    float C = currentArea - restArea;
+
+    if (abs(C) < 1e-9) return;
+
+    // 各頂点に対する勾配を計算
+    float2 grad0 = -0.5 * float2(p1.y - p2.y, p2.x - p1.x);
+    float2 grad1 = -0.5 * float2(p2.y - p0.y, p0.x - p2.x);
+    float2 grad2 = -0.5 * float2(p0.y - p1.y, p1.x - p0.x);
+
+    // 分母（質量は全て1とする）
+    float s = 1.0 * dot(grad0, grad0) + 1.0 * dot(grad1, grad1) + 1.0 * dot(grad2, grad2);
+
+    if (s < 1e-9) return;
+
+    float lambda = C / s;
+
+    float2 corr0 = lambda * 1.0 * grad0;
+    float2 corr1 = lambda * 1.0 * grad1;
+    float2 corr2 = lambda * 1.0 * grad2;
+
+    _Corrections[cID0] = corr0 * _K;
+    _Corrections[cID1] = corr1 * _K;
+    _Corrections[cID2] = corr2 * _K;
+}
+
+[numthreads(64, 1, 1)]
+void CS_ApplyDelta (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+    int start = _Helpers[id].start;
+    int count = _Helpers[id].count;
+
+    if (count <= 0) return;
+
+    float2 corrSum = float2(0, 0);
+
+    // [unroll]
+    for (int i = start; i < start + count; i++)
+    {
+        int cID = _References[i];
+        corrSum += _Corrections[cID]; // ランダムアクセス
+    }
+
+    float2 corr = corrSum / count;
+
+    _Particles[id].p += corr;
+}

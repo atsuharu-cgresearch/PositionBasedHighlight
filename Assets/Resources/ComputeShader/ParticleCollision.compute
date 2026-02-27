@@ -1,0 +1,80 @@
+#pragma kernel CS_Main
+
+#include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
+
+struct ParticleRange
+{
+    int start;
+    int count;
+};
+
+RWStructuredBuffer<ParticleData> _Particles;
+
+// パーティクル単位
+StructuredBuffer<int> _ObjectIndices;
+StructuredBuffer<int> _Layers;
+
+// オブジェクト単位
+StructuredBuffer<ParticleRange> _ObjectParticleRanges;
+
+// レイヤー単位
+StructuredBuffer<ParticleRange> _LayerParticleRanges;
+
+uint _NumParticles;
+float _K;
+float _Radius;
+
+[numthreads(64, 1, 1)]
+void CS_Main (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+    float2 p = _Particles[id].p;
+
+    int objID = _ObjectIndices[id];
+    int layer = _Layers[id];
+
+    // このオブジェクトが持つパーティクルの範囲
+    int objStart = _ObjectParticleRanges[objID].start;
+    int objCount = _ObjectParticleRanges[objID].count;
+
+    // 同じレイヤー内に存在するパーティクルの範囲
+    int layerStart = _LayerParticleRanges[layer].start;
+    int layerCount = _LayerParticleRanges[layer].count;
+
+    float2 corrSum = float2(0, 0);
+    int corrCount = 0;
+    for (int i = 0; i < layerCount; i++)
+    {
+        int targetID = layerStart + i;
+
+        // 同じオブジェクトのパーティクルの場合は衝突判定を行わない
+        if (objStart <= targetID && targetID < objStart + objCount)
+        {
+            continue;
+        }
+
+        float2 targetPos = _Particles[targetID].p;
+
+        // 衝突判定
+        float2 diff = p - targetPos;
+        float sqrDist = dot(diff, diff);
+
+        if (sqrDist > _Radius * _Radius - 1e-4)
+        {
+            continue;
+        }
+
+        float2 corrDir = normalize(diff);
+        float corrDist = (2 * _Radius - length(diff)) / 2.0;
+
+        corrSum += corrDir * corrDist;
+        corrCount++;
+    }
+
+    if (corrCount <= 0) return;
+
+    float2 corr = corrSum / corrCount;
+
+    _Particles[id].p += corr * _K;
+}

@@ -1,0 +1,68 @@
+#pragma kernel CS_Main
+
+#include "./MyFunctions.hlsl"
+
+RWTexture2D<float4> _LocalPosTexture;
+
+StructuredBuffer<float3> _TriangleVertices;
+StructuredBuffer<float2> _TriangleUVs;
+
+int _UVTexSize;
+int _NumTriangleVertices;
+
+// この画素と対応するメッシュ上のローカル座標を計算する
+[numthreads(8, 8, 1)]
+void CS_Main (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_UVTexSize || id.y >= (uint)_UVTexSize) return;
+
+    // このピクセル座標をUV座標に変換
+    float2 myUV = float2(id.x + 0.5, id.y + 0.5) / (float)_UVTexSize;
+
+    // 対応する三角ポリゴンを探す
+    float3 localPos = float3(0, 0, 0);
+    bool hit = false;
+    for (int i = 0; i < _NumTriangleVertices; i += 3)
+    {
+        // 三角ポリゴンの頂点のUV座標
+        float2 uv0 = _TriangleUVs[i + 0];
+        float2 uv1 = _TriangleUVs[i + 1];
+        float2 uv2 = _TriangleUVs[i + 2];
+
+        if (IsInsideTriangle(myUV, uv0, uv1, uv2))
+        {
+            // 対応するローカル座標
+            float3 v0 = _TriangleVertices[i + 0];
+            float3 v1 = _TriangleVertices[i + 1];
+            float3 v2 = _TriangleVertices[i + 2];
+
+            // バリセントリック座標
+            float2 e0 = uv1 - uv0;
+            float2 e1 = uv2 - uv0;
+            float2 d  = myUV - uv0;
+
+            float d00 = dot(e0, e0);
+            float d01 = dot(e0, e1);
+            float d11 = dot(e1, e1);
+            float d20 = dot(d,  e0);
+            float d21 = dot(d,  e1);
+
+            float denom = d00 * d11 - d01 * d01;
+            if (abs(denom) < 1e-8f) break; // 退化三角形
+
+            float invDenom = 1.0 / denom;
+            float w1 = (d11 * d20 - d01 * d21) * invDenom;
+            float w2 = (d00 * d21 - d01 * d20) * invDenom;
+            float w0 = 1.0 - w1 - w2;
+
+            // ローカル座標を補間
+            localPos = w0 * v0 + w1 * v1 + w2 * v2;
+
+            _LocalPosTexture[id.xy] = float4(localPos.xyz, 1.0);
+            return;
+        }
+    }
+
+    // どの三角形とも重ならない場合
+    _LocalPosTexture[id.xy] = float4(0, 0, 0, 0);
+}
