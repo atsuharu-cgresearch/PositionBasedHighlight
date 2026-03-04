@@ -102,6 +102,7 @@ namespace PositionBasedHighlight
 
             body.CollisionSolver.Bind(body.ParticleBuffer, body.LayerBuffer);
             body.TargetPosSolver.Bind(body.ParticleBuffer, body.LocalPosBuffer, body.ObjectIndexBuffer);
+            body.TargetPosForce.Bind(body.ParticleBuffer, body.LocalPosBuffer, body.ObjectIndexBuffer, dt);
 
             // Substepに分割して反復実行
             for (int i = 0; i < parameter.NumSubsteps; i++)
@@ -114,17 +115,21 @@ namespace PositionBasedHighlight
         {
             int threadGroups = Mathf.CeilToInt(body.ParticleBuffer.count / 64f);
 
-            // 外力の適用・現在の速度から推定位置を計算
+            // 外力の適用
+            float k_TargetPosForce = parameter.STargetPos;
+            body.TargetPosForce.ApplyForce(k_TargetPosForce);
+
+            // 現在の速度から推定位置を計算
             compute.Dispatch(kPredict, threadGroups, 1, 1);
 
             // 拘束条件を解く
             for (int i = 0; i < parameter.NumIterations; i++)
             {
-                if (body.DistanceConstraint != null)
+                /*if (body.DistanceConstraint != null)
                 {
                     float k_Dist = 1 - Mathf.Pow(1 - Mathf.Clamp01(parameter.SDistance), 1f / (parameter.NumIterations * parameter.NumSubsteps));
                     body.DistanceConstraint.ConstrainPositions(k_Dist);
-                }
+                }*/
 
                 if (body.AreaConstraint != null)
                 {
@@ -138,11 +143,11 @@ namespace PositionBasedHighlight
                     body.ShapeMatchConstraint.ConstrainPositions(k_ShapeMatch);
                 }
 
-                if (body.TargetPosSolver != null)
+                /*if (body.TargetPosSolver != null)
                 {
                     float k_TargetPos = 1 - Mathf.Pow(1 - Mathf.Clamp01(parameter.STargetPos), 1f / (parameter.NumIterations * parameter.NumSubsteps));
                     body.TargetPosSolver.ConstrainPositions(k_TargetPos);
-                }
+                }*/
 
                 if (body.CollisionSolver != null)
                 {
@@ -150,11 +155,11 @@ namespace PositionBasedHighlight
                     body.CollisionSolver.ConstrainPositions(k_Collision);
                 }
 
-                if (body.ParticleCollisionSolver != null)
+                /*if (body.ParticleCollisionSolver != null)
                 {
                     float k_PCollision = 1 - Mathf.Pow(1 - Mathf.Clamp01(parameter.SCollision), 1f / (parameter.NumIterations * parameter.NumSubsteps));
                     body.ParticleCollisionSolver.ConstrainPositions(k_PCollision, 0.03f);
-                }
+                }*/
             }
 
             // 修正結果をもとに位置と速度を更新

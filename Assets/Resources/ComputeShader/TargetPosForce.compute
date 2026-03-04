@@ -1,0 +1,58 @@
+// 目標位置（初期位置＋Offset）へ向かって外力を与えて、パーティクルを移動させる
+
+#pragma kernel CS_Main
+
+#include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
+
+RWStructuredBuffer<ParticleData> _Particles;
+StructuredBuffer<float2> _LocalPositions;
+StructuredBuffer<int> _References;
+StructuredBuffer<float4> _Offsets;
+
+uint _NumParticles;
+float _K;
+float _Dt;
+
+float2 LocalToWorld(float2 pLocal, float2 pos, float scale, float angle)
+{
+    float2 p = pLocal * scale;
+
+    float c = cos(angle);
+    float s = sin(angle);
+
+    float2 pRot;
+    pRot.x =  c * p.x - s * p.y;
+    pRot.y =  s * p.x + c * p.y;
+
+    return pRot + pos;
+}
+
+[numthreads(64, 1, 1)]
+void CS_Main (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+    float2 p = _Particles[id].p;
+
+    float2 localPos = _LocalPositions[id];
+
+    int reference = _References[id];
+    float4 offset = _Offsets[reference];
+
+    float2 targetPos = LocalToWorld(localPos, offset.xy, offset.z, offset.w);
+
+    float2 dir = targetPos - p;
+    float dist = length(dir);
+
+    // ほぼゼロ距離では力を与えない
+    if (dist < 1e-6) return;
+
+    float2 n = dir / dist;
+
+    // 距離が遠いほど強く、近いほど弱くなる非線形スケーリング
+    // dist=0 → 0、dist大 → dist^2 に比例
+    float forceMag = _K * dist;
+
+    // v += F * dt
+    _Particles[id].v += n * forceMag * _Dt;
+}

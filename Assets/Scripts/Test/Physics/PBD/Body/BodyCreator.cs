@@ -163,12 +163,13 @@ namespace PositionBasedHighlight
 
             var collisionConst = new CollisionSolver(colliderTexSize);
             var targetPosConst = new TargetPosSolver();
+            var targetPosForce = new TargetPosForce();
             var particleCollisionConst = new ParticleCollisionSolver(particleBuffer, objIndexBuffer, layerBuffer);
 
             return new Body(
                 particleBuffer, localPosBuffer, objIndexBuffer, layerBuffer,
                 distConst, areaConst, shapeConst,
-                collisionConst, targetPosConst, particleCollisionConst,
+                collisionConst, targetPosConst, targetPosForce, particleCollisionConst,
                 aggregate.objToParticles.ToArray()
                 );
         }

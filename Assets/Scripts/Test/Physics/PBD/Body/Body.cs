@@ -46,6 +46,7 @@ namespace PositionBasedHighlight
 
         public CollisionSolver CollisionSolver { get; private set; }
         public TargetPosSolver TargetPosSolver { get; private set; }
+        public TargetPosForce TargetPosForce { get; private set; }
         public ParticleCollisionSolver ParticleCollisionSolver { get; private set; }
 
         public ObjectToParticles[] ObjToParticles { get; private set; }
@@ -53,7 +54,7 @@ namespace PositionBasedHighlight
         public Body(
             ComputeBuffer particles, ComputeBuffer localPositions, ComputeBuffer objIndices, ComputeBuffer layers,
             DistanceConstraint distConst, AreaConstraint areaConst, ShapeMatchConstraint shapeMatchConst,
-            CollisionSolver collisionConst, TargetPosSolver targetPosConst, ParticleCollisionSolver particleCollisionConst,
+            CollisionSolver collisionConst, TargetPosSolver targetPosConst, TargetPosForce targetPosForce, ParticleCollisionSolver particleCollisionConst,
             ObjectToParticles[] references)
         {
             ParticleBuffer = particles;
@@ -67,6 +68,7 @@ namespace PositionBasedHighlight
 
             CollisionSolver = collisionConst;
             TargetPosSolver = targetPosConst;
+            TargetPosForce = targetPosForce;
             ParticleCollisionSolver = particleCollisionConst;
 
             ObjToParticles = references;
@@ -94,6 +96,7 @@ namespace PositionBasedHighlight
             if (ShapeMatchConstraint != null) ShapeMatchConstraint.Release();
 
             if (TargetPosSolver != null) TargetPosSolver.ReleaseBuffers();
+            if (TargetPosForce != null) TargetPosForce.ReleaseBuffers();
             if (CollisionSolver != null) CollisionSolver.ReleaseBuffers();
             if (ParticleCollisionSolver != null) ParticleCollisionSolver.ReleaseBuffers();
         }

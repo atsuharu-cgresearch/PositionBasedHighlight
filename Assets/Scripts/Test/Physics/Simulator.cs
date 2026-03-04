@@ -25,6 +25,7 @@ namespace PositionBasedHighlight
         private PBDSolver pbdSolver;
         private CollisionSolver collisionSolver;
         private TargetPosSolver targetPosSolver;
+        private TargetPosForce targetPosForce;
         private ParticleCollisionSolver particleCollisionSolver;
 
         private bool isInitialized;
