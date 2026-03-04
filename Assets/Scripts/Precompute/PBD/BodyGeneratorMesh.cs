@@ -2,7 +2,9 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System.IO;
+#if UNITY_EDITOR
 using UnityEditor;
+#endif
 using PositionBasedHighlight;
 
 public class BodyGeneratorMesh : MonoBehaviour
@@ -181,6 +183,7 @@ public class BodyGeneratorMesh : MonoBehaviour
         selectedIndexList.Clear();
     }
 
+#if UNITY_EDITOR
     private void OnDrawGizmos()
     {
         DrawSelectedVertices();
@@ -251,6 +254,7 @@ public class BodyGeneratorMesh : MonoBehaviour
             pOffset += count;
         }
     }
+#endif
 
     private void Export()
     {

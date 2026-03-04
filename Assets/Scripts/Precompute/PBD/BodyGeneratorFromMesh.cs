@@ -213,6 +213,7 @@ public class BodyGeneratorFromMesh : MonoBehaviour
         selectedIndexList.Clear();
     }
 
+#if UNITY_EDITOR
     private void OnDrawGizmos()
     {
         DrawSelectedVertices();
@@ -283,6 +284,7 @@ public class BodyGeneratorFromMesh : MonoBehaviour
             pOffset += count;
         }
     }
+#endif
 
     private void Export()
     {
