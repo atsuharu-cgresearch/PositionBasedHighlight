@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
-  m_IndirectSpecularColor: {r: 0.18028328, g: 0.22571322, b: 0.30692163, a: 1}
+  m_IndirectSpecularColor: {r: 0.4465782, g: 0.49641252, b: 0.5748167, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -936,14 +936,14 @@ MonoBehaviour:
         scale: 1
     response: 0.3
     curvature: 1
-  depthRTSize: 1024
-  colliderSize: 256
-  renderSize: 1024
+  depthRTSize: 512
+  colliderSize: 128
+  renderSize: 512
   camSwitcher: {fileID: 790989696}
   lightController: {fileID: 1021217837}
   solverParameter:
     numIterations: 3
-    numSubsteps: 4
+    numSubsteps: 2
     damping: 0.99
     gravity: {x: 0, y: 0, z: 0}
     sDistance: 0.3

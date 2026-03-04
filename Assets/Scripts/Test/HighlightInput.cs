@@ -22,6 +22,7 @@ namespace PositionBasedHighlight
 
     public enum TextureSize
     {
+        TEX_SIZE_128 = 128,
         TEX_SIZE_256 = 256,
         TEX_SIZE_512 = 512,
         TEX_SIZE_1024 = 1024,
