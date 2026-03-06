@@ -67,6 +67,9 @@ namespace PositionBasedHighlight
         Quaternion GetActiveLightRot();
     }
 
+    /// <summary>
+    /// 外部からのパラメータや設定の入力・変更を扱うクラス
+    /// </summary>
     public class HighlightInput : MonoBehaviour, IReadOnlyInput
     {
         [SerializeField] private bool isActive = true;

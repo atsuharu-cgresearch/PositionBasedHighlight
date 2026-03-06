@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using Unity.Profiling;
 
 namespace PositionBasedHighlight
 {
@@ -11,6 +12,10 @@ namespace PositionBasedHighlight
         private Simulator simulator;
 
         private HighlightComponent[] components;
+
+        static readonly ProfilerMarker markerSetPhysics = new ProfilerMarker("MyMarkerSystemSetPhysics");
+        static readonly ProfilerMarker markerSimulation = new ProfilerMarker("MyMarkerSystemSimulation");
+        static readonly ProfilerMarker markerRenderring = new ProfilerMarker("MyMarkerSystemRendering");
 
         private void Start()
         {
@@ -72,20 +77,38 @@ namespace PositionBasedHighlight
             Vector3 lightPos = input.GetActiveLightPos();
             Quaternion lightRot = input.GetActiveLightRot();
 
-            for (int i = 0; i < input.Slots.Count; i++)
+            
+            using (markerSetPhysics.Auto())
             {
-                components[i].SetPhysicsInputs(simulator.DataPool, camPos, camRot, lightPos);
+                for (int i = 0; i < input.Slots.Count; i++)
+                {
+                    components[i].SetPhysicsInputs(simulator.DataPool, camPos, camRot, lightPos);
+                }
             }
+            
+            
 
             // シミュレーションを実行
             float dtClamp = Mathf.Clamp(Time.deltaTime, 1 / 240f, 1 / 60f);
-            simulator.Execute(0.016f);
 
-            // 結果を取得してレンダリング
-            for (int i = 0; i < input.Slots.Count; i++)
+            using (markerSimulation.Auto())
             {
-                components[i].Render();
+                simulator.Execute(dtClamp);
             }
+            
+            
+            // 結果を取得してレンダリング
+
+            using (markerRenderring.Auto())
+            {
+                for (int i = 0; i < input.Slots.Count; i++)
+                {
+                    components[i].Render();
+                }
+            }
+            
+            
+            
         }
 
         private void OnDestroy()

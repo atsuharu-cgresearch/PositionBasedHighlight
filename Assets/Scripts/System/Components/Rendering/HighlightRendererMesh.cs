@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using Unity.Profiling;
 
 namespace PositionBasedHighlight
 {
@@ -12,12 +13,14 @@ namespace PositionBasedHighlight
         private ComputeBuffer particleBuffer;
         private RenderTexture resultRT;
 
-        private CameraMeshSetController rendererSet;
+        private CameraMeshSetController2 rendererSet;
+
+        static readonly ProfilerMarker markerRendering = new ProfilerMarker("MyMarkerMeshRendering");
 
         public HighlightRendererMesh(int texSize, SimulationObjectDefinition[] defs, ComputeBuffer particles, ObjectToParticles[] references)
         {
-            GameObject rendererSetObj = Object.Instantiate(Resources.Load<GameObject>("Prefab/CameraMeshSet"));
-            rendererSet = rendererSetObj.GetComponent<CameraMeshSetController>();
+            //GameObject rendererSetObj = Object.Instantiate(Resources.Load<GameObject>("Prefab/CameraMeshSet"));
+            //rendererSet = rendererSetObj.GetComponent<CameraMeshSetController>();
 
             Mesh[] meshArray = new Mesh[defs.Length];
             Material[] materialArray = new Material[defs.Length];
@@ -50,13 +53,18 @@ namespace PositionBasedHighlight
                 materialArray[i] = mat;
             }
             
-            rendererSet.Initialize(meshArray, materialArray);
+            // rendererSet.Initialize(meshArray, materialArray);
 
             particleBuffer = particles;
             HelperFunction.CreateCameraTargetFloat4RT(ref resultRT, texSize);
+
+            // コンストラクタ内
+            rendererSet = new CameraMeshSetController2();
+            rendererSet.Initialize(meshArray, materialArray); // initPosは内部で持つようにしたので引数削除
+                                                              // GameObject rendererSetObj = ... 等の行はすべて削除
         }
 
-        public RenderTexture RenderResult(Vector4 textureTransform)
+        /*public RenderTexture RenderResult(Vector4 textureTransform)
         {
             Vector3 camOffset = new Vector3(textureTransform.x, textureTransform.y, 0);
             float camSize = textureTransform.z / 2;
@@ -64,7 +72,28 @@ namespace PositionBasedHighlight
 
             rendererSet.UpdateCamera(camOffset, camSize);
 
-            rendererSet.DrawMesh(resultRT);
+            using (markerRendering.Auto())
+            {
+                rendererSet.DrawMesh(resultRT);
+            }
+
+            
+
+            return resultRT;
+        }*/
+
+        // RenderResult メソッド内
+        public RenderTexture RenderResult(Vector4 textureTransform)
+        {
+            Vector2 camOffset = new Vector2(textureTransform.x, textureTransform.y);
+            float camSize = textureTransform.z / 2;
+
+            rendererSet.UpdateCamera(camOffset, camSize);
+
+            using (markerRendering.Auto())
+            {
+                rendererSet.DrawMesh(resultRT, camOffset);
+            }
 
             return resultRT;
         }

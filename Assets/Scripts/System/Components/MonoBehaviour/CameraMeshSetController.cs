@@ -46,6 +46,10 @@ namespace PositionBasedHighlight
                 // レイヤーを専用のレイヤーに変更する
                 renderTargetObjs[i].layer = tempLayer;
             }
+
+            // Cameraコンポーネントは、アクティブ状態でシーンに置いておくとレンダリング処理が呼ばれてしまうので、非アクティブにしておく
+            // 非アクティブ状態でもCamera.Render()関数は実行可能
+            cam.gameObject.SetActive(false);
         }
 
         public void UpdateCamera(Vector2 offset, float size)

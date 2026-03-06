@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using Unity.Profiling;
 
 namespace PositionBasedHighlight
 {
@@ -19,7 +20,10 @@ namespace PositionBasedHighlight
         private LightDirCalculator lightDirCalculator;
 
         private HighlightRendererMesh rendererMesh;
-        private HighlightRenderer renderer;
+        private HighlightRendererPIP rendererPIP;
+
+        static readonly ProfilerMarker markerRenderer = new ProfilerMarker("MyMarkerRenderer");
+        static readonly ProfilerMarker markerRendererMesh = new ProfilerMarker("MyMarkerRendererMesh");
 
         // UV空間からシミュレーション空間への変換は、レンダリングに使用するので保持しておく
         private Vector4 textureTransform = new Vector4(0.25f, 0.25f, 1, 0);
@@ -76,7 +80,7 @@ namespace PositionBasedHighlight
                 defs[i] = SimulationObjectDatabase.Load(slot.elements[i].type);
             }
 
-            renderer = new HighlightRenderer(renderSize, defs, particles, references);
+            rendererPIP = new HighlightRendererPIP(renderSize, defs, particles, references);
             rendererMesh = new HighlightRendererMesh(renderSize, defs, particles, references);
         }
 
@@ -103,8 +107,8 @@ namespace PositionBasedHighlight
             Vector4 colliderTransform = new Vector4(colliderOffset.x, colliderOffset.y, colliderScale, colliderRot);
 
             dataPool.SetCollider(collider, colliderTransform, layerKey);
+            
 
-            // 
             Vector2 lightOffset = response * lightDirCalculator.CalcLightDirOffset(lightPos);
 
             for (int i = 0; i < objKeys.Length; i++)
@@ -130,14 +134,24 @@ namespace PositionBasedHighlight
         /// </summary>
         public void Render()
         {
-            // slot.target.RenderResult(renderer.RenderResult(textureTransform));
+            /*using (markerRenderer.Auto())
+            {
+                slot.target.RenderResult(rendererPIP.RenderResult(textureTransform));
 
-            slot.target.RenderResult(rendererMesh.RenderResult(textureTransform));
+            }*/
+
+            
+            using (markerRendererMesh.Auto())
+            {
+                slot.target.RenderResult(rendererMesh.RenderResult(textureTransform));
+            }
+            
         }
 
         public void ReleaseBuffers()
         {
-            renderer.ReleaseBuffers();
+            colliderGenerator.ReleaseBuffers();
+            rendererPIP.ReleaseBuffers();
         }
     }
 }

@@ -7,7 +7,7 @@ namespace PositionBasedHighlight
     /// <summary>
     /// シミュレーション結果をもとにUVテクスチャを生成し、TargetMeshに渡す
     /// </summary>
-    public class HighlightRenderer
+    public class HighlightRendererPIPFast
     {
         private ComputeShader compute;
         private int kMain;
@@ -16,12 +16,12 @@ namespace PositionBasedHighlight
         private ComputeBuffer edgeIndexBuffer;
         private RenderTexture resultRT;
 
-        public HighlightRenderer(int texSize, SimulationObjectDefinition[] defs, ComputeBuffer particles, ObjectToParticles[] references)
+        public HighlightRendererPIPFast(int texSize, SimulationObjectDefinition[] defs, ComputeBuffer particles, ObjectToParticles[] references)
         {
             compute = Object.Instantiate(Resources.Load<ComputeShader>("ComputeShader/ParticleToHighlight"));
             kMain = compute.FindKernel("CS_Main");
 
-            
+
             List<int> edgeIndexListAll = new List<int>();
             for (int j = 0; j < defs.Length; j++)
             {
@@ -32,7 +32,7 @@ namespace PositionBasedHighlight
                 edgeIndexListAll.Add(-1);
                 edgeIndexListAll.Add(-1);
             }
-            
+
             edgeIndexBuffer = ComputeHelper.CreateStructuredBuffer(edgeIndexListAll.ToArray());
             ComputeHelper.CreateRenderTexture(ref resultRT, texSize, texSize, RenderTextureFormat.ARGBFloat);
             particleBuffer = particles;

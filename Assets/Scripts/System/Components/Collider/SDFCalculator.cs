@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using UnityEngine;
 
 namespace PositionBasedHighlight
@@ -65,6 +66,7 @@ namespace PositionBasedHighlight
             compute.SetTexture(kWrite, "_InputTex", input);
             compute.SetTexture(kWrite, "_Result", sdfRT);
             compute.SetTexture(kWrite, "_BufferRead", (steps % 2 == 0) ? bufferA : bufferB);
+            
             compute.Dispatch(kWrite, groupsX, groupsY, 1);
 
             return sdfRT;
