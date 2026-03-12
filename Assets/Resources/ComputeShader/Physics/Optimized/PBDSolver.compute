@@ -1,0 +1,36 @@
+#pragma kernel CS_Predict
+#pragma kernel CS_Update
+
+#include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
+
+RWStructuredBuffer<ParticleData> _Particles;
+
+uint _NumParticles;
+float _Dt;
+float _Damping;
+float2 _Gravity;
+
+[numthreads(64, 1, 1)]
+void CS_Predict (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+	// レジスタに読み込み
+    ParticleData pData = _Particles[id];
+
+    pData.v = (pData.v + _Gravity * _Dt) * _Damping;
+    pData.p = pData.x + pData.v * _Dt;
+
+    // グローバルメモリに書き込む
+    _Particles[id] = pData;
+}
+
+[numthreads(64, 1, 1)]
+void CS_Update (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+	_Particles[id].v = (_Particles[id].p - _Particles[id].x) / _Dt;
+
+	_Particles[id].x = _Particles[id].p;
+}

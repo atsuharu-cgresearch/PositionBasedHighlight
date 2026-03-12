@@ -1,0 +1,81 @@
+#pragma kernel CS_Main
+
+#include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
+
+RWStructuredBuffer<ParticleData> _Particles;
+StructuredBuffer<int> _References;
+Texture2DArray<float4> _SDFArray;
+StructuredBuffer<float4> _Transforms; // posU, posV, scale, angle
+
+uint _NumParticles;
+float _K;
+uint _TexSize;
+
+// =======================================================
+// 【最適化1】 共有メモリと三角関数の事前計算キャッシュ
+// =======================================================
+#define MAX_LAYERS 16
+groupshared float4 shared_Transforms[MAX_LAYERS];
+groupshared float  shared_Cos[MAX_LAYERS];
+groupshared float  shared_Sin[MAX_LAYERS];
+
+[numthreads(64, 1, 1)]
+void CS_Main (uint id : SV_DispatchThreadID, uint groupIndex : SV_GroupIndex)
+{
+    // グループ内の先頭スレッド(0~15)が、Transform情報と重い三角関数を計算して共有メモリにキャッシュする
+    if (groupIndex < MAX_LAYERS)
+    {
+        float4 t = _Transforms[groupIndex];
+        shared_Transforms[groupIndex] = t;
+        shared_Cos[groupIndex] = cos(t.w);
+        shared_Sin[groupIndex] = sin(t.w);
+    }
+    
+    // 16個のロードと計算が終わるまで全スレッド待機
+    GroupMemoryBarrierWithGroupSync();
+
+    if (id >= _NumParticles) return;
+
+    // レジスタにデータを読み込む
+    ParticleData pData = _Particles[id];
+    int reference = _References[id];    
+
+    // 共有メモリ（超高速）からデータを取得
+    float2 localPos = shared_Transforms[reference].xy;
+    float localScale = shared_Transforms[reference].z;
+    float c = shared_Cos[reference];
+    float s = shared_Sin[reference];
+
+    // =======================================================
+    // 【最適化3】 WorldToLocal のインライン化 (事前計算したsin/cosを使用)
+    // =======================================================
+    float2 p = pData.p - localPos;
+    float2 pLocal = float2(c * p.x + s * p.y, -s * p.x + c * p.y) / localScale;
+
+    // テクスチャ上に強制移動 (clamp)
+    pLocal = clamp(pLocal, -0.5f + 1e-6f, 0.5f - 1e-6f);
+
+    // 画素値を取得
+    float2 uv = pLocal + 0.5f;
+    int2 samplePix = int2(floor(uv * _TexSize));
+    float4 color = _SDFArray[int3(samplePix, reference)];
+
+    // =======================================================
+    // 【最適化2】 分岐の完全排除 (ブランチレス化)
+    // =======================================================
+    // color.a が 0.5 以上なら 1.0 (衝突), 未満なら 0.0 (非衝突)
+    float isColliding = step(0.5f, color.a); 
+
+    // 衝突判定に関わらず修正ベクトルは計算してしまう（GPUは分岐するより計算する方が速い）
+    float2 corr = (color.xy - 0.5f) * 2.0f;
+
+    // LocalDirToWorld のインライン化
+    float2 d = corr * localScale;
+    float2 corrWorld = float2(c * d.x - s * d.y, s * d.x + c * d.y);
+
+    // isColliding (1.0 か 0.0) を掛けることで、当たっていないパーティクルは足し算が 0 になる
+    pData.p += corrWorld * (_K * isColliding);
+
+    // 最後に1回だけVRAMに書き戻す
+    _Particles[id] = pData;
+}

@@ -5,34 +5,53 @@ using UnityEngine;
 namespace PositionBasedHighlight
 {
     /// <summary>
-    /// 外部から渡されたデータを保持しておくクラス
+    /// Simulatorクラスから分離して、Input, Simulator, Renderer間でやり取りされるデータを管理する
     /// </summary>
     public class ExternalDataPool
     {
+        // SimulationInputCalculatorが書き込んで、Simulatorへ入力するデータ
         public RenderTexture[] SDFArray { get; private set; }
-        public Vector4[] ColliderTransforms { get; private set; }
-        public Vector4[] TargetPosTransforms { get; private set; }
+        public Transform2D[] ColliderTransforms { get; private set; }
+        public Transform2D[] TargetPosTransforms { get; private set; }
+
+        
+        // Simulatorが出力し、SimulationResultRendererへ入力するデータ
+        public ComputeBuffer ParticleBuffer { get; private set; }
+        // Rendererからキーで参照するための配列
+        private ParticleRange[] particleReferences;
+
 
         public ExternalDataPool(int maxLayers)
         {
             SDFArray = new RenderTexture[maxLayers];
-
-            ColliderTransforms = new Vector4[maxLayers];
-
-            TargetPosTransforms = new Vector4[maxLayers];
+            ColliderTransforms = new Transform2D[maxLayers];
+            TargetPosTransforms = new Transform2D[maxLayers];
         }
 
-        // 
-        public void SetCollider(RenderTexture collider, Vector4 transform, int index)
+        // Input Setter
+        public void SetCollider(RenderTexture collider, Transform2D transform, int index)
         {
             SDFArray[index] = collider;
-
             ColliderTransforms[index] = transform;
         }
 
-        public void SetTargetPosOffset(Vector4 transform, int index)
+        public void SetTargetPosOffset(Transform2D transform, int index)
         {
             TargetPosTransforms[index] = transform;
+        }
+
+        // Output Setter
+        // Simulatorが初期化時に呼び出す)
+        public void SetSimulationOutputs(ComputeBuffer buffer, ParticleRange[] references)
+        {
+            ParticleBuffer = buffer;
+            particleReferences = references;
+        }
+
+        // Output Getter
+        public ParticleRange GetParticleReference(int key)
+        {
+            return particleReferences[key];
         }
     }
 }

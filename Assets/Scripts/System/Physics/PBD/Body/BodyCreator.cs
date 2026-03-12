@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -9,72 +8,61 @@ namespace PositionBasedHighlight
         public struct ObjectData
         {
             public SimulationObjectDefinition def; // パーティクル配置・拘束条件
-            public Vector4 initTransform; // 初期配置
-            public int layer; // 何番目のレイヤーに登録するか
+            public Vector4 initTransform;          // 初期配置
+            public int layer;                      // 何番目のレイヤーに登録するか
         }
 
-        // 全ての登録が終了した後でまとめてバッファを生成するため、それまでここに保存しておく
         private List<ObjectData> objectDataList = new List<ObjectData>();
 
         /// <summary>
-        /// オブジェクトごとに登録していったデータを１次元にまとめるのに使用する
+        /// オブジェクトごとに登録していったデータを１次元にまとめるクラス
         /// </summary>
         public class AggregateData
         {
             public List<Vector2> positionsInit = new List<Vector2>();
             public List<Vector2> positionsLocal = new List<Vector2>();
-            public List<int> distIndices = new List<int>();
             public List<int> areaIndices = new List<int>();
             public List<int> shapeMatchIndices = new List<int>();
             public List<int> shapeMatchCounts = new List<int>();
             public List<int> myObjectIndices = new List<int>();
             public List<int> myLayerIndices = new List<int>();
-            public List<ObjectToParticles> objToParticles = new List<ObjectToParticles>();
+            public List<ParticleRange> objToParticles = new List<ParticleRange>();
 
             public AggregateData(List<ObjectData> objectDataList)
             {
                 int pOffset = 0;
 
-                for (int i = 0; i < objectDataList.Count; i++)
+                foreach (var data in objectDataList)
                 {
-                    var def = objectDataList[i].def;
+                    var def = data.def;
+                    int pCount = def.particles.Length;
 
-                    // ローカル座標にTransformを適用して初期配置を決める
-                    Vector2[] posTransformed = new Vector2[def.particles.Length];
-
-                    for (int j = 0; j < posTransformed.Length; j++)
+                    // 【改善1】 一時的な配列(new Vector2[])を作らず、直接Listに追加する
+                    for (int j = 0; j < pCount; j++)
                     {
-                        // posTransformed[j] = def.particles[j];
-                        posTransformed[j] = LocalToWorld(def.particles[j], objectDataList[i].initTransform);
-                        // Debug.Log(posTransformed[j]);
+                        positionsInit.Add(LocalToWorld(def.particles[j], data.initTransform));
+                        positionsLocal.Add(def.particles[j]);
+                        myObjectIndices.Add(data.layer); // オブジェクトのインデックス
+                        myLayerIndices.Add(data.layer);
                     }
-                    positionsInit.AddRange(posTransformed);
 
-                    // ローカル座標も別で保存
-                    positionsLocal.AddRange(def.particles);
-
-                    // インデックスのオフセット計算と集計
-                    if (def.distConstIndices.Length > 0)
-                        distIndices.AddRange(ApplyIndexOffset(def.distConstIndices, pOffset));
-
+                    // 【改善2】 ApplyIndexOffsetメソッドを廃止し、直接オフセットを足してAddする
                     if (def.areaConstIndices.Length > 0)
-                        areaIndices.AddRange(ApplyIndexOffset(def.areaConstIndices, pOffset));
+                    {
+                        foreach (int idx in def.areaConstIndices)
+                            areaIndices.Add(idx + pOffset);
+                    }
 
                     if (def.shapeMatchIndices.Length > 0)
                     {
-                        shapeMatchIndices.AddRange(ApplyIndexOffset(def.shapeMatchIndices, pOffset));
+                        foreach (int idx in def.shapeMatchIndices)
+                            shapeMatchIndices.Add(idx + pOffset);
+
                         shapeMatchCounts.AddRange(def.shapeMatchCounts);
                     }
 
-                    // どのパーティクルがどのオブジェクトか
-                    for (int p = 0; p < def.particles.Length; p++) myObjectIndices.Add(i);
-
-                    // パーティクルのレイヤー
-                    for (int p = 0; p < def.particles.Length; p++) myLayerIndices.Add(objectDataList[i].layer);
-
-                    objToParticles.Add(new ObjectToParticles(pOffset, def.particles.Length));
-
-                    pOffset += def.particles.Length;
+                    objToParticles.Add(new ParticleRange(pOffset, pCount));
+                    pOffset += pCount;
                 }
             }
 
@@ -85,60 +73,31 @@ namespace PositionBasedHighlight
                 float angle = transform.w;
 
                 Vector2 p = pLocal * scale;
-
                 float c = Mathf.Cos(angle);
                 float s = Mathf.Sin(angle);
 
-                Vector2 pRot;
-                pRot.x = c * p.x - s * p.y;
-                pRot.y = s * p.x + c * p.y;
-
-                return pRot + origin;
+                return new Vector2(
+                    c * p.x - s * p.y + origin.x,
+                    s * p.x + c * p.y + origin.y
+                );
             }
-
-            private int[] ApplyIndexOffset(int[] indices, int offset)
-            {
-                int[] result = new int[indices.Length];
-                for (int i = 0; i < indices.Length; i++) result[i] = indices[i] + offset;
-                return result;
-            }
-        }
-
-        public BodyCreator()
-        {
-
         }
 
         public void AddElement(SimulationObjectDefinition def, Vector4 initTransform, int layer, out int keyGetParticles)
         {
-            ObjectData data = new ObjectData();
-
-            data.def = def;
-            data.initTransform = initTransform;
-            data.layer = layer;
-
-            objectDataList.Add(data);
+            objectDataList.Add(new ObjectData
+            {
+                def = def,
+                initTransform = initTransform,
+                layer = layer
+            });
 
             keyGetParticles = objectDataList.Count - 1;
         }
 
-
-        public ComputeBuffer CreateParticleBuffer(AggregateData aggregate)
-        {
-            int numParticles = aggregate.positionsInit.Count;
-
-            ParticleData[] particles = new ParticleData[numParticles];
-            for (int i = 0; i < numParticles; i++)
-            {
-                particles[i] = new ParticleData(aggregate.positionsInit[i]);
-            }
-
-            return ComputeHelper.CreateStructuredBuffer(particles);
-        }
-
         public Body CreateBody(int colliderTexSize)
         {
-            if (objectDataList == null || objectDataList.Count == 0)
+            if (objectDataList.Count == 0)
             {
                 Debug.LogWarning("オブジェクトが１つも登録されていないため、Bodyを初期化しません");
                 return null;
@@ -147,31 +106,39 @@ namespace PositionBasedHighlight
             // データを１つにまとめる
             var aggregate = new AggregateData(objectDataList);
 
-            ComputeBuffer particleBuffer = CreateParticleBuffer(aggregate);
+            // パーティクルデータの生成
+            int numParticles = aggregate.positionsInit.Count;
+            ParticleData[] particles = new ParticleData[numParticles];
+            for (int i = 0; i < numParticles; i++)
+            {
+                particles[i] = new ParticleData(aggregate.positionsInit[i]);
+            }
+
+            // バッファの生成
+            ComputeBuffer particleBuffer = ComputeHelper.CreateStructuredBuffer(particles);
             ComputeBuffer objIndexBuffer = ComputeHelper.CreateStructuredBuffer(aggregate.myObjectIndices.ToArray());
             ComputeBuffer layerBuffer = ComputeHelper.CreateStructuredBuffer(aggregate.myLayerIndices.ToArray());
             ComputeBuffer localPosBuffer = ComputeHelper.CreateStructuredBuffer(aggregate.positionsLocal.ToArray());
 
-            var areaConst = aggregate.areaIndices.Count > 0
+            // 【改善3】 最新のクラス名（純粋なデータコンテナ）に合わせて生成
+            var areaConstraint = aggregate.areaIndices.Count > 0
                 ? new AreaConstraint(particleBuffer, aggregate.areaIndices.ToArray()) : null;
 
-            var distConst = aggregate.distIndices.Count > 0
-                ? new DistanceConstraint(particleBuffer, aggregate.distIndices.ToArray()) : null;
-
-            var shapeConst = aggregate.shapeMatchIndices.Count > 0
+            var shapeConstraint = aggregate.shapeMatchIndices.Count > 0
                 ? new ShapeMatchConstraint(particleBuffer, aggregate.shapeMatchIndices.ToArray(), aggregate.shapeMatchCounts.ToArray()) : null;
 
-            var collisionConst = new CollisionSolver(colliderTexSize);
+            var collisionConstraint = new CollisionSolver(colliderTexSize);
+
+            // （TargetPos系もデータクラス化されていればここで生成）
             var targetPosConst = new TargetPosSolver();
             var targetPosForce = new TargetPosForce();
-            var particleCollisionConst = new ParticleCollisionSolver(particleBuffer, objIndexBuffer, layerBuffer);
 
             return new Body(
                 particleBuffer, localPosBuffer, objIndexBuffer, layerBuffer,
-                distConst, areaConst, shapeConst,
-                collisionConst, targetPosConst, targetPosForce, particleCollisionConst,
+                areaConstraint, shapeConstraint,
+                collisionConstraint, targetPosConst, targetPosForce,
                 aggregate.objToParticles.ToArray()
-                );
+            );
         }
     }
 }

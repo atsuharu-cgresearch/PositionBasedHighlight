@@ -1,58 +1,82 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using Unity.Profiling;
 
 namespace PositionBasedHighlight
 {
+    /// <summary>
+    /// このシステムを管理する最上位クラス
+    /// 
+    /// </summary>
     public class HighlightSystem : MonoBehaviour
     {
-        private IReadOnlyInput input;
+        // パラメータ・設定の入力
+        private HighlightInput input;
 
+        // 物理シミュレーション
         private Simulator simulator;
 
-        private HighlightComponent[] components;
+        // シミュレーターへの入力とシミュレーション結果の描画
+        // これらはハイライトごとに計算する
+        private SimulationInputCalculator[] simInputCalculators;
+        private SimulationResultRenderer[] simResultRenderers;
 
-        static readonly ProfilerMarker markerSetPhysics = new ProfilerMarker("MyMarkerSystemSetPhysics");
-        static readonly ProfilerMarker markerSimulation = new ProfilerMarker("MyMarkerSystemSimulation");
-        static readonly ProfilerMarker markerRenderring = new ProfilerMarker("MyMarkerSystemRendering");
+        private int numSlots;
 
         private void Start()
         {
-            input = GetComponent<IReadOnlyInput>();
+            // 入力担当のコンポーネントを取得
+            input = GetComponent<HighlightInput>();
 
-            Initialize();
+            // 各コンポーネントの初期化
+            InitComponents();
+
+            // 現在のカメラや光源の配置を基準とする
+            ResetHighlight();
         }
 
-        private void Initialize()
+        /// <summary>
+        /// 
+        /// </summary>
+        private void InitComponents()
         {
             // コンポーネントにシミュレーターの参照を渡すので先にインスタンス化する必要がある
             simulator = new Simulator();
 
-            components = new HighlightComponent[input.Slots.Count];
-            for (int i = 0; i < input.Slots.Count; i++)
-            {
-                components[i] = new HighlightComponent(
-                    input.Slots[i],
-                    input.DepthRTSize,
-                    input.ColliderRTSize,
-                    i
-                    );
+            numSlots = input.slots.Count;
 
-                components[i].RegisterForPhysics(simulator.BodyCreator);
+            // シミュレーターへの入力を計算するクラスを初期化
+            // シミュレーターに登録する
+            simInputCalculators = new SimulationInputCalculator[numSlots];
+            for (int i = 0; i < numSlots; i++)
+            {
+                simInputCalculators[i] = new SimulationInputCalculator(input.slots[i], input.colliderRTSize, i);
+
+                // 
+                simInputCalculators[i].RegisterForPhysics(simulator.BodyCreator);
             }
 
-            // 各コンポーネントがパーティクルの登録などを行った後にこれを実行して初期化する
-            simulator.Initialize(input.ReadOnlyParameter, input.ColliderRTSize);
 
-            for (int i = 0; i < input.Slots.Count; i++)
+            // シミュレーターを初期化する
+            // inputCalculatorがシミュレーターに登録した後
+            simulator.Initialize(input.solverParameter, input.colliderRTSize);
+
+
+            // 
+            simResultRenderers = new SimulationResultRenderer[numSlots];
+            for (int i = 0; i < numSlots; i++)
             {
-                // パーティクルバッファと参照用のデータを渡すだけなので、インターフェースを使う
-                components[i].InitRenderer(simulator, input.RendererRTSize);
-            }
+                simResultRenderers[i] = new SimulationResultRenderer();
 
-            // 現在のカメラや光源の配置を基準とする
-            ResetHighlight();
+                int[] keys = simInputCalculators[i].objKeys;
+                ParticleRange[] references = new ParticleRange[keys.Length];
+                for (int j = 0; j < keys.Length; j++)
+                {
+                    references[j] = simulator.DataPool.GetParticleReference(keys[j]);
+                }
+
+                simResultRenderers[i].InitRenderer(input.slots[i], simulator.DataPool.ParticleBuffer, references, input.rendererRTSize);
+            }
         }
 
         /// <summary>
@@ -60,64 +84,55 @@ namespace PositionBasedHighlight
         /// </summary>
         private void ResetHighlight()
         {
-            for (int i = 0; i < input.Slots.Count; i++)
+            for (int i = 0; i < input.slots.Count; i++)
             {
-                components[i].Reset(input.GetActiveCamPos(), input.GetActiveLightPos());
+                simInputCalculators[i].Reset(input.cameraTransform.position, input.lightTransform.position);
             }
         }
 
         private void Update()
         {
-            if (!input.IsActive) return;
+            if (!input.isActive) return;
 
             if (Input.GetKeyDown(KeyCode.R)) ResetHighlight();
 
-            Vector3 camPos = input.GetActiveCamPos();
-            Quaternion camRot = input.GetActiveCamRot();
-            Vector3 lightPos = input.GetActiveLightPos();
-            Quaternion lightRot = input.GetActiveLightRot();
+            Vector3 camPos = input.cameraTransform.position;
+            Quaternion camRot = input.cameraTransform.rotation;
+            Vector3 lightPos = input.lightTransform.position;
+            Quaternion lightRot = input.lightTransform.rotation;
 
-            
-            using (markerSetPhysics.Auto())
+
+            for (int i = 0; i < input.slots.Count; i++)
             {
-                for (int i = 0; i < input.Slots.Count; i++)
-                {
-                    components[i].SetPhysicsInputs(simulator.DataPool, camPos, camRot, lightPos);
-                }
+                simInputCalculators[i].UpdatePhysicsInputs(simulator.DataPool, camPos, camRot, lightPos);
             }
-            
-            
 
             // シミュレーションを実行
-            float dtClamp = Mathf.Clamp(Time.deltaTime, 1 / 240f, 1 / 60f);
+            // deltaTimeに0に近い値が入ったり、極端に大きな値が入るとシミュレーションが破綻するため、Clampする
+            float dtClamp = Mathf.Clamp(Time.deltaTime, 1 / 300f, 1 / 30f);
+            simulator.Execute(dtClamp);
 
-            using (markerSimulation.Auto())
-            {
-                simulator.Execute(dtClamp);
-            }
-            
-            
+
             // 結果を取得してレンダリング
-
-            using (markerRenderring.Auto())
+            for (int i = 0; i < input.slots.Count; i++)
             {
-                for (int i = 0; i < input.Slots.Count; i++)
-                {
-                    components[i].Render();
-                }
+                // 
+                Transform2D textureTransform = simInputCalculators[i].textureTransform;
+
+                // 
+                simResultRenderers[i].Render(textureTransform);
             }
-            
-            
-            
         }
 
         private void OnDestroy()
         {
             simulator.ReleaseBuffers();
 
-            foreach (var component in components)
+            for (int i = 0; i < numSlots; i++)
             {
-                component.ReleaseBuffers();
+                simInputCalculators[i].Release();
+
+                simResultRenderers[i].Release();
             }
         }
     }

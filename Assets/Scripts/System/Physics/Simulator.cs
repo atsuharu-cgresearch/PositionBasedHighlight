@@ -4,29 +4,16 @@ using UnityEngine;
 
 namespace PositionBasedHighlight
 {
-    #region Interface Definition
-    public interface IParticleDataProvider
+    public class Simulator
     {
-        ComputeBuffer GetParticleBuffer();
-        ObjectToParticles GetParticleReference(int key);
-    }
-    #endregion
-
-    public class Simulator : IParticleDataProvider
-    {
+        // 
         private readonly int maxLayers = 16;
 
-        // 
         private Body body;
         public BodyCreator BodyCreator { get; private set; }
-
         public ExternalDataPool DataPool { get; private set; }
 
-        private PBDSolver pbdSolver;
-        private CollisionSolver collisionSolver;
-        private TargetPosSolver targetPosSolver;
-        private TargetPosForce targetPosForce;
-        private ParticleCollisionSolver particleCollisionSolver;
+        private PBDSolver solver;
 
         private bool isInitialized;
 
@@ -34,11 +21,10 @@ namespace PositionBasedHighlight
         {
             BodyCreator = new BodyCreator();
             DataPool = new ExternalDataPool(maxLayers);
-
             isInitialized = false;
         }
 
-        public bool Initialize(PBDSolver.IReadOnlyParameter solverParameter, int colliderTexSize)
+        public bool Initialize(PBDSolver.Parameter solverParameter, int colliderTexSize)
         {
             // Bodyを初期化
             body = BodyCreator.CreateBody(colliderTexSize);
@@ -46,7 +32,10 @@ namespace PositionBasedHighlight
             if (body != null)
             {
                 // ソルバーを初期化
-                pbdSolver = new PBDSolver(solverParameter, body);
+                solver = new PBDSolver(solverParameter, body, DataPool);
+
+                // 生成されたバッファを、DataPoolにセット
+                DataPool.SetSimulationOutputs(body.ParticleBuffer, body.ObjToParticles);
 
                 isInitialized = true;
                 return true;
@@ -64,28 +53,13 @@ namespace PositionBasedHighlight
                 return;
             }
 
-            // 外部からの変更を適用
-            body.ApplyExternalData(DataPool);
-
             // シミュレーションを実行
-            pbdSolver.Step(dt);
+            solver.Step(dt);
         }
 
         public void ReleaseBuffers()
         {
             body.ReleaseBuffers();
         }
-
-        #region Interface Function
-        public ComputeBuffer GetParticleBuffer()
-        {
-            return body.ParticleBuffer;
-        }
-
-        public ObjectToParticles GetParticleReference(int key)
-        {
-            return body.ObjToParticles[key];
-        }
-        #endregion
     }
 }

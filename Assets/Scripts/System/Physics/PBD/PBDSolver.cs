@@ -6,83 +6,47 @@ namespace PositionBasedHighlight
 {
     /// <summary>
     /// Position Based DynamicsのSubstep法によるソルバー
+    /// 実行ロジックと外部データの取得を全てここに集約する
     /// </summary>
     public class PBDSolver
     {
         private Body body;
+        private ExternalDataPool dataPool; // 追加: 外部データへのアクセス権
 
         private ComputeShader compute;
 
         private int kPredict;
         private int kUpdate;
 
-        private IReadOnlyParameter parameter;
+        private Parameter parameter;
 
         [System.Serializable]
-        public class Parameter : IReadOnlyParameter
+        public class Parameter
         {
-            // Inspectorから編集できるようにする
-            [SerializeField] private int numIterations = 3;
+            public int numIterations = 3;
             public int numSubsteps = 3;
             public float damping = 0.99f;
-            public Vector3 gravity = Physics.gravity;
+            public Vector3 gravity = Physics.gravity; // デバッグ用
 
-            public float sDistance = 0.7f;
-            public float sArea = 0.03f;
-            public float sShapeMatch = 0.03f;
-            public float sCollision = 0.1f;
-            public float sTargetPos = 0.001f;
-
-            // ソルバー内部で変更されたくないので、インターフェースを使用してこの部分のみを渡す
-            public int NumIterations => numIterations;
-            public int NumSubsteps => numSubsteps;
-            public float Damping => damping;
-            public Vector3 Gravity => gravity;
-
-            public float SDistance => sDistance;
-            public float SArea => sArea;
-            public float SShapeMatch => sShapeMatch;
-            public float SCollision => sCollision;
-            public float STargetPos => sTargetPos;
-
-            // UIなどから値を変更する場合はこれを使う
-            public int NumIteraionsSet { set => numIterations = value; }
-            public int NumSubstepsSet { set => numSubsteps = value; }
-            public float DampingSet { set => damping = value; }
-            public Vector3 GravitySet { set => gravity = value; }
-
-            public float SDistanceSet { set => sDistance = value; }
-            public float SAreaSet { set => sArea = value; }
-            public float SShapeMatchSet { set => sShapeMatch = value; }
-            public float SCollisionSet { set => sCollision = value; }
-            public float STargetPosSet { set => sTargetPos = value; }
+            public float stiffnessArea = 0.03f;
+            public float stiffnessShapeMatch = 0.03f;
+            public float stiffnessCollision = 0.1f;
+            public float stiffnessTargetPos = 0.001f;
         }
 
-        public interface IReadOnlyParameter
-        {
-            int NumIterations { get; }
-            int NumSubsteps { get; }
-            float Damping { get; }
-            Vector3 Gravity { get; }
-
-            float SDistance { get; }
-            float SArea { get; }
-            float SShapeMatch { get; }
-            float SCollision { get; }
-            float STargetPos { get; }
-        }
-
-        public PBDSolver(IReadOnlyParameter parameter, Body body)
+        // 引数に ExternalDataPool を追加
+        public PBDSolver(Parameter parameter, Body body, ExternalDataPool dataPool)
         {
             this.body = body;
             this.parameter = parameter;
+            this.dataPool = dataPool;
 
             InitComputeShader();
         }
 
         private void InitComputeShader()
         {
-            compute = Resources.Load<ComputeShader>("ComputeShader/PBDSolver");
+            compute = Resources.Load<ComputeShader>("ComputeShader/Physics/PBDSolver");
 
             kPredict = compute.FindKernel("CS_Predict");
             kUpdate = compute.FindKernel("CS_Update");
@@ -92,20 +56,35 @@ namespace PositionBasedHighlight
 
         public void Step(float dt)
         {
-            float subDt = dt / parameter.NumSubsteps;
+            float subDt = dt / parameter.numSubsteps;
+
+            // =========================================================
+            // 【変更点】 DataPoolからの外部データの適用をPBDSolverが行う
+            // =========================================================
+            if (body.CollisionSolver != null)
+            {
+                body.CollisionSolver.SetSDFArray(dataPool.SDFArray);
+                body.CollisionSolver.SetColliderTransforms(dataPool.ColliderTransforms);
+            }
+            if (body.TargetPosSolver != null)
+            {
+                body.TargetPosSolver.SetOffsets(dataPool.TargetPosTransforms);
+            }
+            // =========================================================
 
             // プロパティ変数とSDFをシェーダーに渡す
             compute.SetInt("_NumParticles", body.ParticleBuffer.count);
             compute.SetFloat("_Dt", subDt);
-            compute.SetFloat("_Damping", parameter.Damping);
-            compute.SetVector("_Gravity", parameter.Gravity);
+            compute.SetFloat("_Damping", parameter.damping);
+            compute.SetVector("_Gravity", parameter.gravity);
 
+            // 各種ソルバーへのバッファのバインド
             body.CollisionSolver.Bind(body.ParticleBuffer, body.LayerBuffer);
             body.TargetPosSolver.Bind(body.ParticleBuffer, body.LocalPosBuffer, body.ObjectIndexBuffer);
             body.TargetPosForce.Bind(body.ParticleBuffer, body.LocalPosBuffer, body.ObjectIndexBuffer, dt);
 
             // Substepに分割して反復実行
-            for (int i = 0; i < parameter.NumSubsteps; i++)
+            for (int i = 0; i < parameter.numSubsteps; i++)
             {
                 Substep();
             }
@@ -116,50 +95,32 @@ namespace PositionBasedHighlight
             int threadGroups = Mathf.CeilToInt(body.ParticleBuffer.count / 64f);
 
             // 外力の適用
-            float k_TargetPosForce = parameter.STargetPos;
+            float k_TargetPosForce = parameter.stiffnessTargetPos;
             body.TargetPosForce.ApplyForce(k_TargetPosForce);
 
             // 現在の速度から推定位置を計算
             compute.Dispatch(kPredict, threadGroups, 1, 1);
 
-            // 拘束条件を解く
-            for (int i = 0; i < parameter.NumIterations; i++)
+            // 拘束条件を解いて位置を修正
+            for (int i = 0; i < parameter.numIterations; i++)
             {
-                /*if (body.DistanceConstraint != null)
-                {
-                    float k_Dist = 1 - Mathf.Pow(1 - Mathf.Clamp01(parameter.SDistance), 1f / (parameter.NumIterations * parameter.NumSubsteps));
-                    body.DistanceConstraint.ConstrainPositions(k_Dist);
-                }*/
-
                 if (body.AreaConstraint != null)
                 {
-                    float k_Area = 1 - Mathf.Pow(1 - Mathf.Clamp01(parameter.SArea), 1f / (parameter.NumIterations * parameter.NumSubsteps));
+                    float k_Area = 1 - Mathf.Pow(1 - Mathf.Clamp01(parameter.stiffnessArea), 1f / (parameter.numIterations * parameter.numSubsteps));
                     body.AreaConstraint.ConstrainPositions(k_Area);
                 }
 
                 if (body.ShapeMatchConstraint != null)
                 {
-                    float k_ShapeMatch = 1 - Mathf.Pow(1 - Mathf.Clamp01(parameter.SShapeMatch), 1f / (parameter.NumIterations * parameter.NumSubsteps));
+                    float k_ShapeMatch = 1 - Mathf.Pow(1 - Mathf.Clamp01(parameter.stiffnessShapeMatch), 1f / (parameter.numIterations * parameter.numSubsteps));
                     body.ShapeMatchConstraint.ConstrainPositions(k_ShapeMatch);
                 }
 
-                /*if (body.TargetPosSolver != null)
-                {
-                    float k_TargetPos = 1 - Mathf.Pow(1 - Mathf.Clamp01(parameter.STargetPos), 1f / (parameter.NumIterations * parameter.NumSubsteps));
-                    body.TargetPosSolver.ConstrainPositions(k_TargetPos);
-                }*/
-
                 if (body.CollisionSolver != null)
                 {
-                    float k_Collision = 1 - Mathf.Pow(1 - Mathf.Clamp01(parameter.SCollision), 1f / (parameter.NumIterations * parameter.NumSubsteps));
+                    float k_Collision = 1 - Mathf.Pow(1 - Mathf.Clamp01(parameter.stiffnessCollision), 1f / (parameter.numIterations * parameter.numSubsteps));
                     body.CollisionSolver.ConstrainPositions(k_Collision);
                 }
-
-                /*if (body.ParticleCollisionSolver != null)
-                {
-                    float k_PCollision = 1 - Mathf.Pow(1 - Mathf.Clamp01(parameter.SCollision), 1f / (parameter.NumIterations * parameter.NumSubsteps));
-                    body.ParticleCollisionSolver.ConstrainPositions(k_PCollision, 0.03f);
-                }*/
             }
 
             // 修正結果をもとに位置と速度を更新

@@ -38,7 +38,7 @@ namespace PositionBasedHighlight
     }
 
     [System.Serializable]
-    public class InputSlot : IReadOnlySlot
+    public class InputSlot
     {
         public TargetMesh target;
         public Occluder occluder;
@@ -47,71 +47,21 @@ namespace PositionBasedHighlight
         [Range(0, 2)] public float curvature = 1.0f;
     }
 
-    public interface IReadOnlySlot
-    {
-
-    }
-
-    public interface IReadOnlyInput
-    {
-        bool IsActive { get; }
-        List<InputSlot> Slots { get; }
-        int DepthRTSize { get; }
-        int ColliderRTSize { get; }
-        int RendererRTSize { get; }
-        PBDSolver.IReadOnlyParameter ReadOnlyParameter { get; }
-
-        Vector3 GetActiveCamPos();
-        Quaternion GetActiveCamRot();
-        Vector3 GetActiveLightPos();
-        Quaternion GetActiveLightRot();
-    }
-
     /// <summary>
     /// 外部からのパラメータや設定の入力・変更を扱うクラス
     /// </summary>
-    public class HighlightInput : MonoBehaviour, IReadOnlyInput
+    public class HighlightInput : MonoBehaviour
     {
-        [SerializeField] private bool isActive = true;
-
-        [SerializeField] private List<InputSlot> slots = new List<InputSlot>();
-
-        [SerializeField] private TextureSize depthRTSize = TextureSize.TEX_SIZE_512;
-        [SerializeField] private TextureSize colliderSize = TextureSize.TEX_SIZE_512;
-        [SerializeField] private TextureSize renderSize = TextureSize.TEX_SIZE_1024;
-
-        [SerializeField] private CameraSwitcher camSwitcher;
-        [SerializeField] private LightController lightController;
-
-        [SerializeField] private PBDSolver.Parameter solverParameter;
+        public Transform cameraTransform;
+        public Transform lightTransform;
+        public PBDSolver.Parameter solverParameter;
 
         // Systemクラスで値が変更されないようにするため、インターフェースを使って以下のプロパティのみ参照させる
-        public bool IsActive { get { return isActive; } }
-        public List<InputSlot> Slots { get { return slots; } }
-        public int DepthRTSize { get { return (int)depthRTSize; } }
-        public int ColliderRTSize { get { return (int)colliderSize; } }
-        public int RendererRTSize { get { return (int)renderSize; } }
-        public PBDSolver.IReadOnlyParameter ReadOnlyParameter => solverParameter;
-
-        public Vector3 GetActiveCamPos()
-        {
-            return camSwitcher.ActiveCam.transform.position;
-        }
-
-        public Quaternion GetActiveCamRot()
-        {
-            return camSwitcher.ActiveCam.transform.rotation;
-        }
-
-        public Vector3 GetActiveLightPos()
-        {
-            return lightController.ActiveLight.transform.position;
-        }
-
-        public Quaternion GetActiveLightRot()
-        {
-            return lightController.ActiveLight.transform.rotation;
-        }
+        public bool isActive;
+        public List<InputSlot> slots;
+        public int depthRTSize;
+        public int colliderRTSize;
+        public int rendererRTSize;
 
         private void Start()
         {
@@ -120,7 +70,7 @@ namespace PositionBasedHighlight
 
         private void Update()
         {
-            // カメラ、仮想ライト、シミュレーション用パラメータの変更を常に監視しておく
+            
         }
     }
 }

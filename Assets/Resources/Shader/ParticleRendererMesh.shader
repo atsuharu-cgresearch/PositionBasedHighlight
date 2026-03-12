@@ -8,7 +8,8 @@ Shader "PositionBasedHighlight/ParticleRendererMesh"
     {
         Tags { "RenderType"="Opaque" }
         Cull Off
-        LOD 100
+        ZWrite Off
+        ZTest Always
 
         Pass
         {
@@ -23,8 +24,8 @@ Shader "PositionBasedHighlight/ParticleRendererMesh"
             {
                 float4 vertex : POSITION;
 
-                // Meshのuv2チャンネルに、この頂点が参照するパーティクルのインデックスを格納しておく
-                float4 uv2 : TEXCOORD1;
+                // Meshクラスのuv2チャンネルに、この頂点が参照するパーティクルのインデックスを持たせている
+                float2 uv2 : TEXCOORD1;
             };
 
             struct v2f
